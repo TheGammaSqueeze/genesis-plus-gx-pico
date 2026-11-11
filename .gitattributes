@@ -1,0 +1,2 @@
+# The patches carry CRLF lines for the core files that use them: never convert them.
+*.patch -text

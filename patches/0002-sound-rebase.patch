@@ -1,0 +1,38 @@
+genesis-plus-gx-pico patch to upstream Genesis Plus GX (core/sound/sound.c, core/sound/sound.h),
+under the Genesis Plus GX licence like the files it changes (LICENSE).
+Copyright (c) 2026 TheGammaSqueeze. Applied by build.sh to a copy in out/src.
+
+--- a/core/sound/sound.c
++++ b/core/sound/sound.c
+@@ -675,3 +675,22 @@
+     }
+   }
+ }
++
++/* Re-baseline the audio synthesis to a clean, consistent phase: clear all blip integrators/ring and
++ * zero the FM last-level carry. Used after a (non-fast) rewind state_load so each rewound frame starts
++ * its band-limited synthesis from the same baseline instead of stepping against a stale integrator
++ * (the reverse-audio buzz). blip_clear leaves the buffer ready; fm_last=0 makes the next frame's FM
++ * deltas relative to silence, consistent across every rewound frame. */
++void sound_rebase()
++{
++  int i;
++  fm_last[0] = 0;
++  fm_last[1] = 0;
++  for (i = 0; i < 3; i++)
++  {
++    if (snd.blips[i] != NULL)
++    {
++      blip_clear(snd.blips[i]);
++    }
++  }
++}
+--- a/core/sound/sound.h
++++ b/core/sound/sound.h
+@@ -51,5 +51,6 @@
+ extern unsigned int (*fm_read)(unsigned int cycles, unsigned int address);
+ extern void save_sound_buffer();
+ extern void restore_sound_buffer();
++extern void sound_rebase();
+ 
+ #endif /* _SOUND_H_ */

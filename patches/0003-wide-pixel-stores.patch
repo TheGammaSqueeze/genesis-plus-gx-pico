@@ -1,0 +1,79 @@
+genesis-plus-gx-pico patch to upstream Genesis Plus GX (core/vdp_render.c), under the Genesis
+Plus GX licence like the file it changes (LICENSE).
+Copyright (c) 2026 TheGammaSqueeze. Applied by build.sh to a copy in out/src.
+
+--- a/core/vdp_render.c
++++ b/core/vdp_render.c
+@@ -956,11 +956,32 @@
+ 
+ INLINE void merge(uint8 *srca, uint8 *srcb, uint8 *dst, uint8 *table, int width)
+ {
+-  do
++  /* 4 indexed pixels per 32-bit store when dst is 4-aligned and width%4==0 (linebuf[..][0x20] is aligned,
++   * mode widths are multiples of 16). Byte-identical (LSB_FIRST: p0->dst0..p3->dst3); quarters the store
++   * count in this per-pixel 16-bit-LUT-gather composite. Scalar fallback otherwise. CRC-validated. */
++  if (!(((unsigned long)dst) & 3ul) && !(width & 3))
+   {
+-    *dst++ = table[(*srcb++ << 8) | (*srca++)];
++    uint32 *d32 = (uint32 *)dst;
++    int n = width >> 2;
++    do
++    {
++      uint32 p0 = table[(srcb[0] << 8) | srca[0]];
++      uint32 p1 = table[(srcb[1] << 8) | srca[1]];
++      uint32 p2 = table[(srcb[2] << 8) | srca[2]];
++      uint32 p3 = table[(srcb[3] << 8) | srca[3]];
++      *d32++ = p0 | (p1 << 8) | (p2 << 16) | (p3 << 24);
++      srca += 4; srcb += 4;
++    }
++    while (--n);
++  }
++  else
++  {
++    do
++    {
++      *dst++ = table[(*srcb++ << 8) | (*srca++)];
++    }
++    while (--width);
+   }
+-  while (--width);
+ }
+ 
+ 
+@@ -4977,11 +4998,33 @@
+     }
+     else
+     {
+-      do
++#if defined(USE_16BPP_RENDERING)
++      /* Remap 2 pixels per 32-bit store when dst is 4-aligned and width is even (always true for MD/SMS:
++       * pitch is even so line*pitch is 16-bit aligned, and every mode width is even). Byte-identical output
++       * (LSB_FIRST: lo->dst[0], hi->dst[1]); halves the store count in this per-pixel LUT-gather loop.
++       * Scalar fallback otherwise. Correctness proven via the gen-bench frame CRC. */
++      if (!(((unsigned long)dst) & 3ul) && !(width & 1))
++      {
++        uint32 *d32 = (uint32 *)dst;
++        int n = width >> 1;
++        do
++        {
++          uint32 lo = pixel[src[0]];
++          uint32 hi = pixel[src[1]];
++          *d32++ = lo | (hi << 16);
++          src += 2;
++        }
++        while (--n);
++      }
++      else
++#endif
+       {
+-        *dst++ = pixel[*src++];
++        do
++        {
++          *dst++ = pixel[*src++];
++        }
++        while (--width);
+       }
+-      while (--width);
+     }
+  #endif
+   }
