@@ -149,7 +149,7 @@ python3 - "$BLOB" "$VERSION" <<'EOF'
 import struct, sys, hashlib
 d = open(sys.argv[1], 'rb').read()
 magic, ver, entry, load, span = struct.unpack_from('<5I', d)
-assert magic == 0x31474553 and ver == 4, "bad header"
+assert magic == 0x31474553 and ver == 6, "bad header"
 # objcopy leaves out the zero pad that aligns the image end to 16 bytes, so the file can stop up
 # to 15 bytes short of load_size; the LK zeroes those bytes with the BSS
 assert len(d) <= load < len(d) + 16, "load size %d does not match file %d" % (load, len(d))

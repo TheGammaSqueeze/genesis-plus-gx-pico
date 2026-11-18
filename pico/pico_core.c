@@ -12,6 +12,7 @@
  * Copyright (c) 2026 TheGammaSqueeze. Part of genesis-plus-gx-pico, under the Genesis Plus GX
  * licence (LICENSE).
  */
+#include <string.h>
 #include <libretro.h>
 #include "genesis_core_abi.h"
 
@@ -31,6 +32,7 @@ void     retro_reset(void);
 void     retro_get_system_av_info(struct retro_system_av_info *);
 void     retro_set_controller_port_device(unsigned, unsigned);
 void    *retro_get_memory_data(unsigned);
+size_t   retro_get_memory_size(unsigned);
 size_t   retro_get_memory_size(unsigned);
 size_t   retro_serialize_size(void);
 bool     retro_serialize(void *, size_t);
@@ -61,8 +63,8 @@ static short    s_aud[GEN_AUD_MAX * 2];
 static unsigned s_aud_frames;
 
 /* core-option store (LK sets these via genesis_set_option; GPGX reads them through env GET_VARIABLE) */
-#define GEN_OPT_MAX 12
-static struct { char key[40]; char val[24]; } s_opt[GEN_OPT_MAX];
+#define GEN_OPT_MAX 96		/* every option the core offers can be set */
+static struct { char key[48]; char val[32]; } s_opt[GEN_OPT_MAX];
 static unsigned s_opt_n;
 static int      s_opt_dirty;
 
@@ -83,6 +85,74 @@ static int genesis_set_option(const char *key, const char *value)
 	str_cpy(s_opt[s_opt_n].val, value, sizeof s_opt[s_opt_n].val);
 	s_opt_n++; s_opt_dirty = 1;
 	return 0;
+}
+
+/* ---- the core's own options, for the LK's Core Settings page ----
+ * GPGX declares its options (libretro core options v2) when the environment is set; they are kept
+ * here as the LK's struct pico_core_option list (pointers into the core's own constant tables),
+ * less the ones that cannot work in the LK or that the LK sets itself. */
+#define GEN_COPT_MAX   96
+#define GEN_COPT_VALS  2048
+static struct pico_core_option s_copt[GEN_COPT_MAX];
+static const char *s_copt_val[GEN_COPT_VALS], *s_copt_lab[GEN_COPT_VALS];
+static int s_copt_n, s_copt_vn;
+
+static int copt_hidden(const char *key)
+{
+	static const char *const hide[] = {
+		"genesis_plus_gx_region_detect", "genesis_plus_gx_aspect_ratio",   /* the LK's own rows */
+		"genesis_plus_gx_bios", "genesis_plus_gx_lock_on",                 /* boot ROMs: no system folder */
+		"genesis_plus_gx_system_bram", "genesis_plus_gx_cart_bram", "genesis_plus_gx_cart_size",
+		"genesis_plus_gx_add_on", "genesis_plus_gx_cd_latency", "genesis_plus_gx_cd_precache",
+		"genesis_plus_gx_cdda_volume", "genesis_plus_gx_pcm_volume",       /* CD: none here */
+		"genesis_plus_gx_frameskip", "genesis_plus_gx_frameskip_threshold", /* the LK paces */
+		"genesis_plus_gx_gun_input", "genesis_plus_gx_gun_cursor", "genesis_plus_gx_invert_mouse",
+		"genesis_plus_gx_show_advanced_audio_settings", 0 };
+	const char *c = key;
+	int i;
+	for (i = 0; hide[i]; i++) if (str_eq(hide[i], key)) return 1;
+	/* the per channel volumes are only read when the core is built with them (not this build) */
+	for (; *c; c++) if (c[0] == '_' && c[1] == 'c' && c[2] == 'h' && c[3] == 'a' && c[4] == 'n' &&
+			    c[5] == 'n' && c[6] == 'e' && c[7] == 'l' && c[8] == '_') return 1;
+	return 0;
+}
+
+static void copt_take(const struct retro_core_options_v2 *o)
+{
+	const struct retro_core_option_v2_definition *d;
+	if (!o || !o->definitions) return;
+	s_copt_n = s_copt_vn = 0;
+	for (d = o->definitions; d->key && s_copt_n < GEN_COPT_MAX; d++) {
+		struct pico_core_option *e = &s_copt[s_copt_n];
+		int nv = 0, k;
+		if (copt_hidden(d->key)) continue;
+		while (nv < RETRO_NUM_CORE_OPTION_VALUES_MAX && d->values[nv].value) nv++;
+		if (!nv || s_copt_vn + nv > GEN_COPT_VALS) continue;
+		e->key = d->key;
+		e->label = d->desc ? d->desc : d->key;
+		e->category = 0;
+		if (d->category_key && o->categories) {
+			const struct retro_core_option_v2_category *c;
+			for (c = o->categories; c->key; c++)
+				if (str_eq(c->key, d->category_key)) { e->category = c->desc; break; }
+		}
+		e->values = &s_copt_val[s_copt_vn];
+		e->labels = &s_copt_lab[s_copt_vn];
+		e->nvalues = nv;
+		e->def = 0;
+		for (k = 0; k < nv; k++) {
+			s_copt_val[s_copt_vn + k] = d->values[k].value;
+			s_copt_lab[s_copt_vn + k] = d->values[k].label ? d->values[k].label : d->values[k].value;
+			if (d->default_value && str_eq(d->values[k].value, d->default_value)) e->def = k;
+		}
+		s_copt_vn += nv;
+		s_copt_n++;
+	}
+}
+static int genesis_opt_count(void) { return s_copt_n; }
+static const struct pico_core_option *genesis_opt_info(int i)
+{
+	return i >= 0 && i < s_copt_n ? &s_copt[i] : 0;
 }
 
 /* per-frame render/audio skip (GPGX honours GET_AUDIO_VIDEO_ENABLE). nv 1 skips the render,
@@ -108,9 +178,23 @@ extern void sound_rebase(void);   /* core/sound/sound.c */
 static void genesis_sound_rebase(void) { sound_rebase(); }
 
 /* ---- libretro callbacks ---- */
+/* the memory map the port announces (RETRO_ENVIRONMENT_SET_MEMORY_MAPS), copied: its array need
+ * not outlive the call. For RetroAchievements (get_memory). */
+#define MEM_DESCS 16
+static struct retro_memory_descriptor g_mem_desc[MEM_DESCS];
+static unsigned g_mem_ndesc;
+
 static bool env_cb(unsigned cmd, void *data)
 {
 	switch (cmd) {
+	case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
+		const struct retro_memory_map *m = (const struct retro_memory_map *)data;
+		g_mem_ndesc = 0;
+		if (m && m->descriptors)
+			for (; g_mem_ndesc < m->num_descriptors && g_mem_ndesc < MEM_DESCS; g_mem_ndesc++)
+				g_mem_desc[g_mem_ndesc] = m->descriptors[g_mem_ndesc];
+		return true;
+	}
 	case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
 		const enum retro_pixel_format *f = (const enum retro_pixel_format *)data;
 		return *f == RETRO_PIXEL_FORMAT_RGB565;   /* we render RGB565 only */
@@ -131,6 +215,17 @@ static bool env_cb(unsigned cmd, void *data)
 		}
 		return false;   /* unknown key -> core default */
 	}
+	case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+		if (data) *(unsigned *)data = 2;	/* so the core declares its options with their values */
+		return true;
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2:
+		copt_take((const struct retro_core_options_v2 *)data);
+		return true;
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL:
+		if (data) copt_take(((const struct retro_core_options_v2_intl *)data)->us);
+		return true;
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
+		return true;			/* shown or not: the LK lists them all */
 	case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
 		if (data) *(bool *)data = s_opt_dirty ? true : false;
 		s_opt_dirty = 0;
@@ -288,9 +383,23 @@ static unsigned genesis_state_size(void) { return (unsigned)retro_serialize_size
 static int genesis_state_save(void *buf, unsigned size) { return retro_serialize(buf, size) ? 0 : -1; }
 static int genesis_state_load(const void *buf, unsigned size) { return retro_unserialize(buf, size) ? 0 : -1; }
 
+/* v6: the game's memory for RetroAchievements: the port's blocks and the map it announced, its
+ * descriptors laid out as pico_memdesc (pico_core_memory.h) */
+_Static_assert(sizeof(struct pico_memdesc) == sizeof(struct retro_memory_descriptor), "pico_memdesc layout");
+static void genesis_get_memory(struct pico_core_memory *out)
+{
+	memset(out, 0, sizeof *out);
+	out->system_ram = retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
+	out->system_ram_size = out->system_ram ? (unsigned)retro_get_memory_size(RETRO_MEMORY_SYSTEM_RAM) : 0;
+	out->save_ram = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+	out->save_ram_size = out->save_ram ? (unsigned)retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) : 0;
+	out->descriptors = g_mem_ndesc ? (const struct pico_memdesc *)g_mem_desc : 0;
+	out->num_descriptors = g_mem_ndesc;
+}
+
 static const struct genesis_core_exports g_exports = {
 	GENESIS_CORE_ABI_MAGIC,
-	GENESIS_CORE_ABI_VERSION,
+	GENESIS_CORE_ABI_V6,
 	genesis_heap_init,
 	genesis_init,
 	genesis_load,
@@ -313,6 +422,9 @@ static const struct genesis_core_exports g_exports = {
 	genesis_set_ra_fast,
 	genesis_sound_rebase,
 	genesis_fps_milli,
+	genesis_opt_count,
+	genesis_opt_info,
+	genesis_get_memory,
 };
 
 const struct genesis_core_exports *genesis_core_blob_init(const struct genesis_core_imports *imp)

@@ -140,7 +140,13 @@ int sscanf(const char *s, const char *fmt, ...){ (void)s;(void)fmt; return 0; } 
 void perror(const char *s){ (void)s; }
 void __assert_func(const char *a, int b, const char *c, const char *d){ (void)a;(void)b;(void)c;(void)d; for(;;){} }
 void exit(int code){ (void)code; for(;;){} }
-void *_impure_ptr = 0;   /* referenced by newlib-shaped headers; our stdio does not deref it */
+/* newlib's per thread state, which newlib-shaped headers and libstdc++ reach through _impure_ptr:
+ * errno, and the stdin/stdout/stderr pointers std::ios_base::Init reads (at +4, +8 and +12) when the
+ * C++ streams are set up. Our stdio never uses them, but the reads happen, so the pointer leads to
+ * a zeroed block (null streams) and not to address 0: a console whose first page is unmapped, or
+ * whose page 0 is not memory, stops there. 1 KB covers newlib's struct _reent on 32 bit ARM. */
+static unsigned int s_reent[256] __attribute__((aligned(8)));
+void *_impure_ptr = s_reent;
 
 /* ---- rng (snes9x seeds/uses for a few effects) ---- */
 static unsigned long g_seed = 1;
