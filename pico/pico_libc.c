@@ -136,6 +136,7 @@ int vsprintf(char *buf, const char *fmt, va_list ap){ return vsnprintf(buf,(size
 /* ---- stdio / diagnostics: no files, no console in LK -> safe stubs ---- */
 int printf(const char *fmt, ...){ (void)fmt; return 0; }
 int fprintf(void *f, const char *fmt, ...){ (void)f;(void)fmt; return 0; }
+int vfprintf(void *f, const char *fmt, va_list ap){ (void)f;(void)fmt;(void)ap; return 0; }   /* the port's fallback log: no console */
 int sscanf(const char *s, const char *fmt, ...){ (void)s;(void)fmt; return 0; }  /* cheats only */
 void perror(const char *s){ (void)s; }
 void __assert_func(const char *a, int b, const char *c, const char *d){ (void)a;(void)b;(void)c;(void)d; for(;;){} }

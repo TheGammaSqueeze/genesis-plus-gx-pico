@@ -78,6 +78,7 @@ header; the core's files have CRLF line endings, and so do the matching lines of
 | `0003-wide-pixel-stores.patch` | `merge()` writes four pixels per 32 bit store and `remap_line()` two (16 bit output), when the destination is aligned and the width allows it, else the original loops. The pictures are byte identical (checked with a frame CRC); on the device a frame went from 5647 to 5101 us. |
 | `0004-hq-fm-note.patch` | A comment only: the high quality FM and PSG resampling cost about 1 % of a frame, so they stay on. |
 | `0005-render-line-status.patch` | `render_line_status()` draws only what the game can observe of a line (sprite collision and overflow flags, sprite masking, the next line's sprite list), not the background or the colour conversion, and `render_status_only` makes the frame's line loop use it. Run ahead's committed frame and fast forward frames, which are never shown, use it (`set_av_skip` video 2). Anything but mode 5 without interlace mode 2 is drawn in full. `tests/render_status_test.c` checks it against the full render. |
+| `0006-cheat-code-counts.patch` | Built with `PICO_CHEAT_COUNTS`, `retro_cheat_set` counts the codes it could not decode (`pico_cheat_codes_bad`); it passes over them without a word otherwise. The LK's Cheats page shows such a code as not read. |
 
 ## Building
 

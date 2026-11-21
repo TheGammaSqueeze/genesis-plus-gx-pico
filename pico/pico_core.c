@@ -29,6 +29,9 @@ bool     retro_load_game(const struct retro_game_info *);
 void     retro_unload_game(void);
 void     retro_run(void);
 void     retro_reset(void);
+void     retro_cheat_reset(void);
+void     retro_cheat_set(unsigned, bool, const char *);
+extern unsigned pico_cheat_codes_bad;   /* patches/0006 */
 void     retro_get_system_av_info(struct retro_system_av_info *);
 void     retro_set_controller_port_device(unsigned, unsigned);
 void    *retro_get_memory_data(unsigned);
@@ -397,9 +400,38 @@ static void genesis_get_memory(struct pico_core_memory *out)
 	out->num_descriptors = g_mem_ndesc;
 }
 
+/* v7: cheat codes through the port's retro_cheat_* (Game Genie and Action Replay codes for the Mega
+ * Drive, and the Master System and Game Gear's own forms), its ROM patches made at once and its RAM
+ * codes written as each frame reads the pads. The port counts the codes it could not decode
+ * (patches/0006). */
+static unsigned g_cheat_next;
+static void genesis_cheat_reset(void) { retro_cheat_reset(); g_cheat_next = 0; }
+static int genesis_cheat_add(const char *code)
+{
+	unsigned before = pico_cheat_codes_bad;
+	char part[250];
+	if (!code || !*code) return -1;
+	/* the port copies at most 255 characters of a cheat: a longer one goes in parts, each whole
+	 * codes ('+' between them), which the port takes one by one all the same */
+	while (*code) {
+		size_t n = strlen(code), cut = n;
+		if (n >= sizeof part) {
+			cut = sizeof part - 1;
+			while (cut && code[cut] != '+') cut--;
+			if (!cut) return -1;   /* a single code that long is no code */
+		}
+		memcpy(part, code, cut);
+		part[cut] = 0;
+		retro_cheat_set(g_cheat_next++, true, part);
+		code += cut;
+		if (*code == '+') code++;
+	}
+	return pico_cheat_codes_bad == before ? 0 : -1;
+}
+
 static const struct genesis_core_exports g_exports = {
 	GENESIS_CORE_ABI_MAGIC,
-	GENESIS_CORE_ABI_V6,
+	GENESIS_CORE_ABI_V7,
 	genesis_heap_init,
 	genesis_init,
 	genesis_load,
@@ -425,6 +457,8 @@ static const struct genesis_core_exports g_exports = {
 	genesis_opt_count,
 	genesis_opt_info,
 	genesis_get_memory,
+	genesis_cheat_reset,
+	genesis_cheat_add,
 };
 
 const struct genesis_core_exports *genesis_core_blob_init(const struct genesis_core_imports *imp)
