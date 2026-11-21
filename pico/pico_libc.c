@@ -1,8 +1,9 @@
 /*
  * pico_libc.c - the freestanding libc the blob links instead of newlib's. It is the one the LK's
  * snes9x blob was first built with, so a few comments below still speak of snes9x. The mem, str,
- * ctype and number-parsing helpers plus a compact vsnprintf are real; file/stdio and cheat
- * parsing (which the blob does not use: no files, no cheats) are safe stubs. __aeabi_* come from
+ * ctype and number-parsing helpers plus a compact vsnprintf are real; file/stdio and sscanf
+ * (which the blob does not use: no files, and the port's cheat decoder reads codes itself) are
+ * safe stubs. __aeabi_* come from
  * libgcc, math from libm; what GPGX needs beyond this is in pico_stubs.c. Goal: a clean link with
  * no crash on the non-critical paths.
  *
@@ -137,7 +138,7 @@ int vsprintf(char *buf, const char *fmt, va_list ap){ return vsnprintf(buf,(size
 int printf(const char *fmt, ...){ (void)fmt; return 0; }
 int fprintf(void *f, const char *fmt, ...){ (void)f;(void)fmt; return 0; }
 int vfprintf(void *f, const char *fmt, va_list ap){ (void)f;(void)fmt;(void)ap; return 0; }   /* the port's fallback log: no console */
-int sscanf(const char *s, const char *fmt, ...){ (void)s;(void)fmt; return 0; }  /* cheats only */
+int sscanf(const char *s, const char *fmt, ...){ (void)s;(void)fmt; return 0; }  /* never reached */
 void perror(const char *s){ (void)s; }
 void __assert_func(const char *a, int b, const char *c, const char *d){ (void)a;(void)b;(void)c;(void)d; for(;;){} }
 void exit(int code){ (void)code; for(;;){} }
